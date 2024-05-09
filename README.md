@@ -1,7 +1,7 @@
 # scRNA-seq-pipeline
 
 ## Background:  
-Single-cell RNA sequencing (scRNA-seq) has revolutionized the ability to investigate gene expression dynamics at the cellular level, suggesting insights into cellular heterogeneity and regulatory mechanisms that were previously inaccessible with bulk sequencing which is a straight-forward method for comparing the averages of cellular expression.However, analyzing scRNA-seq data presents challenges such as noise, batch effects, and high dimensionality, highlighting the need to create robust preprocessing pipelines. Add the implementation of the HPC for high through put 
+Single-cell RNA sequencing (scRNA-seq) has revolutionized the ability to investigate gene expression dynamics at the cellular level, suggesting insights into cellular heterogeneity and regulatory mechanisms that were previously inaccessible with bulk sequencing which is a straight-forward method for comparing the averages of cellular expression. However, analyzing scRNA-seq data presents challenges such as noise, batch effects, and high dimensionality, highlighting the need to create robust preprocessing pipelines. 
 
 
 ## Purpose:  
