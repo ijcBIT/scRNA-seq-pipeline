@@ -1,0 +1,92 @@
+Bootstrap: docker
+From: rocker/r-ver:4.4.0
+
+%labels
+    Author mmerono
+    Version 1.0
+    Description "Container for running scRNAseq analysis with Seurat and CellRanger"
+
+%post
+    # Install system dependencies (Pandoc, hdf5, patch)
+    apt-get update && apt-get install -y \
+      pandoc=2.9.2.1-3ubuntu2 \
+      pandoc-citeproc=0.17.0.1-1build5 \
+      libhdf5-dev=1.10.7+repack-4ubuntu2  \
+      patch=2.7.6-7build2
+      
+    # Install package remotes as we want to set the version we are using for each library
+    Rscript -e "install.packages('remotes')"
+    
+    Rscript -e "remotes::install_version('xfun', version='0.44')"
+    Rscript -e "remotes::install_version('dplyr', version='1.1.4')" 
+    Rscript -e "remotes::install_version('hdf5r', version='1.3.10')"
+    
+    # Install libpng as Seurat needs it
+    apt-get update && apt-get install -y libpng-dev=1.6.37-3build5
+    
+    Rscript -e "remotes::install_version('Seurat', version='5.1.0')"
+    Rscript -e "remotes::install_version('ggplot2', version='3.5.1')"
+    
+    # Install libfontconfig1 as ggraph needs it
+    apt-get update && apt-get install -y libfontconfig1-dev=2.13.1-4.2ubuntu5
+    
+    Rscript -e "remotes::install_version('ggraph', version='2.2.1')" 
+    Rscript -e "remotes::install_version('RColorBrewer', version='1.1-3')"
+    Rscript -e "remotes::install_version('data.table', version='1.15.4')"
+    
+    # Install devtools as SingleR needs it to be installed
+    #   Install all devtools dependencies
+    apt-get update && apt-get install -y \
+      libharfbuzz-dev=2.7.4-1ubuntu3.1 \
+      libfreetype-dev=2.11.1+dfsg-1ubuntu0.2 \
+      libfribidi-dev=1.0.8-2ubuntu3.1 \
+      libxml2-dev=2.9.13+dfsg-1ubuntu0.4 \
+      libfreetype6-dev=2.11.1+dfsg-1ubuntu0.2 \
+      libpng-dev=1.6.37-3build5 \
+      libtiff5-dev=4.3.0-6ubuntu0.8 \
+      libjpeg-dev=8c-2ubuntu10
+      
+    # Install SingleR 
+    #   Install bioconductor to install dependencies of SingleR
+    Rscript -e "install.packages('BiocManager')"
+    #     Install dependencies of SingleR
+    Rscript -e "BiocManager::install('singscore', ask=FALSE, update=TRUE)"
+    Rscript -e "BiocManager::install('GSEABase', ask=FALSE, update=TRUE)"
+    
+    # Install dependencies of SpatialExperiment
+    apt-get update && apt-get install -y libmagick++-dev=8:6.9.11.60+dfsg-1.3ubuntu0.22.04.3
+      
+    Rscript -e "BiocManager::install('SpatialExperiment', ask=FALSE, update=TRUE)" # version 1.14.0
+    Rscript -e "BiocManager::install('GSVA', ask=FALSE, update=TRUE)" # version 1.52.2
+    
+    Rscript -e "BiocManager::install('SingleR', ask=FALSE, update=TRUE)" # version 2.6.0
+    
+    Rscript -e "BiocManager::install('celldex', ask=FALSE, update=TRUE)" # 1.14.0
+    
+    # Seurat requires libigraph to be installed
+    apt-get update && apt-get install -y libigraph-dev=0.9.6+ds-2ubuntu1
+    
+    # Download and install cellranger 
+    apt-get update && apt-get install -y \
+    curl \
+    wget \
+    bzip2 \
+    build-essential \
+    python3 \
+    python3-pip
+
+    CELLRANGER_VERSION=7.2.0
+    cd /opt
+    wget "https://cf.10xgenomics.com/releases/cell-exp/cellranger-${CELLRANGER_VERSION}.tar.gz"
+    tar -xzvf "cellranger-${CELLRANGER_VERSION}.tar.gz"
+    ln -s "/opt/cellranger-${CELLRANGER_VERSION}/cellranger" /usr/local/bin/cellranger
+    rm "cellranger-${CELLRANGER_VERSION}.tar.gz"
+
+    # Update PATH
+    echo 'export PATH=/opt/cellranger:$PATH' >> ~/.bashrc
+    source ~/.bashrc
+
+
+
+
+
