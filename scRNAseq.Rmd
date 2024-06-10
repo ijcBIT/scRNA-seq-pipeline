@@ -28,16 +28,12 @@ geometry: margin=1in
 ---
 
 
-***
-
-
 # Introduction
 
-This is a simple analysis of single-cell RNA sequencing data.
-
+This is a comprehensive analysis of single-cell RNA sequencing (scRNA-seq) data.
 
 ```{r setup, include=FALSE}
-#load library
+# Load required libraries
 library(xfun)
 library(dplyr)
 library(hdf5r)
@@ -47,32 +43,24 @@ library(ggraph)
 library(RColorBrewer)
 library(data.table)
 library(SingleR)
-
-#marker annotation
 library(celldex)
-
-```
-
-
-```{r }
+library(knitr)
 knitr::opts_chunk$set(dev = 'png')
 ```
 
 
+
 # 0. Load the data
 
-```{r }
-
+```{r}
 # Load the PBMC dataset from an .h5 file
 pbmc.data <- Read10X_h5(params$file_10X_h5)
 
-# Initialize the Seurat object with filtered feature barcode matrix.
+# Initialize the Seurat object with the filtered feature barcode matrix
 pbmc <- CreateSeuratObject(counts = pbmc.data, project = "scRNA_seq", min.cells = 3, min.features = 100)
 
 # Display the Seurat object
 pbmc
-
-
 ```
 
 # 1. QC and selecting cells for further analysis
@@ -98,35 +86,41 @@ pbmc$mitoRatio <- pbmc@meta.data$mitoRatio / 100
 ```{r }
 # Create metadata dataframe
 metadata <- pbmc@meta.data
+
 # Add cell IDs to metadata
 metadata$cells <- rownames(metadata)
 
 # Rename columns
 metadata <- metadata %>%
-        dplyr::rename(seq_folder = orig.ident,
-                      nUMI = nCount_RNA,
-                      nGene = nFeature_RNA)
+  dplyr::rename(seq_folder = orig.ident, nUMI = nCount_RNA, nGene = nFeature_RNA)
 
 # Add metadata back to Seurat object
 pbmc@meta.data <- metadata
+
                            
 ```
 
-### Cell counts
+### Cell counts visualization
 
 ```{r, fig.align="center", fig.width=6, fig.height=6, fig.cap="Figure 1: ." }
-# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+# Visualize the correlation between genes detected and number of UMIs
 metadata %>% 
-  ggplot(aes(x=nUMI, y=nGene, color=mitoRatio)) + 
+  ggplot(aes(x = nUMI, y = nGene, color = mitoRatio)) + 
   geom_point() + 
   scale_colour_gradient(low = "gray90", high = "black") +
-  stat_smooth(method="lm", color="blue") +  # Or any other color of your choice
+  stat_smooth(method = "lm", color = "blue") +
   scale_x_log10() + 
   scale_y_log10() + 
   theme_classic() +
-  geom_vline(xintercept = 500) +
-  geom_hline(yintercept = 250)
-
+  geom_vline(xintercept = 500, linetype = "dashed") +
+  geom_hline(yintercept = 250, linetype = "dashed") +
+  labs(
+    title = "Correlation between Genes Detected and Number of UMIs",
+    x = "Number of UMIs (log scale)",
+    y = "Number of Genes (log scale)",
+    color = "Mitochondrial Ratio"
+  ) +
+  theme(plot.title = element_text(hjust = 0.5))
 
 ```
 
@@ -134,17 +128,21 @@ metadata %>%
 
 In the context of quality control (QC) metrics visualization in single-cell RNA sequencing analysis, we employ filtering criteria to refine the dataset. Firstly, we target cells with unique feature counts exceeding 2,500 or falling below 200, as these extremes may indicate technical artefacts or low-quality cells. Additionally, we identify cells with mitochondrial counts surpassing 5%, indicative of potential cell stress or poor quality, and subsequently remove them from the dataset to mitigate their adverse effects on data interpretation. 
 
+###Violin plot of QC metrics
 
 ```{r, fig.align="center", fig.width=6, fig.height=6, fig.cap="Figure 2: ."}
 # Visualize QC metrics as a violin plot
+VlnPlot(
+  object = pbmc,
+  features = c("nUMI", "nGene", "mitoRatio"),
+  pt.size = 0.01,
+  ncol = 3
+) & 
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    axis.title.x = element_blank()
+  )
 
-vln_plot <- VlnPlot(object = pbmc,
-        features = c("nUMI", "nGene", "mitoRatio"),
-        pt.size = 0.01, ncol = 3) &
-  theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
-        axis.title.x = element_blank())
-
-vln_plot
 ```
 
 Cell-level filtering
@@ -159,34 +157,31 @@ Cell-level filtering
 
 
 ```{r }
-# Filter out low quality cells using selected thresholds - these will change with experiment
-filtered_pbmc <- subset(x = pbmc, 
-                         subset= (nUMI >= 500) & 
-                           (nGene >= 250) & 
-                           (log10GenesPerUMI > 0.80) & 
-                           (mitoRatio < 0.20))
+# Filter out low-quality cells using selected thresholds
+filtered_pbmc <- subset(
+  x = pbmc,
+  subset = (nUMI >= 500) & 
+    (nGene >= 250) & 
+    (log10GenesPerUMI > 0.80) & 
+    (mitoRatio < 0.20)
+)
 			                          
 ```
 
 # 2. Normalizing the data
 
-After removing unwanted cells from the dataset, the next step is to normalize the data, whereby systematic variations are adjusted for to make expression counts comparable across genes and/or samples.
-By default, global-scaling normalization method “LogNormalize” is applied, that normalizes the feature expression measurements for each cell by the total expression, multiplies this by a scale factor (10,000 by default), and log-transforms the result. Normalized values are stored in pbmc[["RNA"]]@data.
-
-The goals for normalising the data is are: 
-· to accurately normalize the gene expression values to account for differences in sequencing depth and overdispersed count values. 
-· to identify the most variant genes likely to be indicative of the different cel types present. 
-
+After removing unwanted cells from the dataset, the next step is to normalize the data.
 
 
 ```{r }
-# Standard log normalization for RNA and centered log for ADT.
+# Standard log normalization for RNA
 filtered_pbmc <- NormalizeData(filtered_pbmc, normalization.method = "LogNormalize", scale.factor = 10000, assay = "RNA")
 
 ```
 
-## Cell cycle
-calculate cell cycle scores. Seurat has build-in list, cc.genes.updated.2019, that defines genes involved in cell cycle. 
+## Cell cycle scoring
+
+Calculate cell cycle scores. Seurat has build-in list, cc.genes.updated.2019, that defines genes involved in cell cycle. 
 
 ```{r }
 s.genes <- cc.genes.updated.2019$s.genes
@@ -194,6 +189,7 @@ g2m.genes <- cc.genes.updated.2019$g2m.genes
 
 filtered_pbmc <- CellCycleScoring(filtered_pbmc, s.features = s.genes, g2m.features = g2m.genes)
 table(filtered_pbmc[[]]$Phase)
+
 ```
 
 
@@ -207,33 +203,28 @@ filtered_pbmc <- FindVariableFeatures(filtered_pbmc, selection.method = "vst", n
 
 # 4. Scaling the data
 
-remove unwanted sources of variation; e.g. technical variation, batch effects, biological variations due to cell cycle state, mitochondrial contamination...
-
-linear transformation ('scaling'), a standard pre-procesing step prior to dimensional reduction technoiques like PCA. "ScaleData" function:
-· Shifts the expression of each gene, so that the mean expression across cells is 0.
-· Scales the expression of each gene, so that the variance across cells is 1. This step gives equal weight in downstream analyses, so that highly-expressed genes do not dominate.
+Remove unwanted sources of variation.
 
 ```{r }
 # Scale the counts
 filtered_pbmc <- ScaleData(filtered_pbmc)
 
-#Identify the 10 most highly variable genes 
+# Identify the 10 most highly variable genes
 top10 <- head(VariableFeatures(filtered_pbmc), 10)
 
-#plot variable features with and without labels 
+# Plot variable features with and without labels
 var_features <- VariableFeaturePlot(filtered_pbmc)
 lab_points <- LabelPoints(plot = var_features, points = top10, repel = TRUE)
 
-```
-
-```{r}
 lab_points
+
+
 ```
 
 
 # 5. Performing linear dimensional reduction 
 
-Next, we do a PCA on the scaled data. By default, only the previously determined variable features are used as input, but can be defined using "features" argument if need to choose different subset.
+Next, we perform PCA on the scaled data.
 
 By default we see 2000 most variable genes.
 
@@ -243,46 +234,26 @@ We also split the figure by cell cycle phase, to evaluate similarities and/or di
 filtered_pbmc <- RunPCA(filtered_pbmc, features = VariableFeatures(object = filtered_pbmc))
 
 # Plot the PCA colored by cell cycle phase
-DimPlot(filtered_pbmc,
-        reduction = "pca",
-        group.by= "Phase",
-        split.by = "Phase")
+DimPlot(filtered_pbmc, reduction = "pca", group.by = "Phase", split.by = "Phase")
+
 ```
 
-Seurat provides several useful ways of visualizing both cells and features that define the PCA, including "VizDimReduction", "DimPlot", and "DimHeatmap"
-
-
-```{r }
+```{r}
 print(filtered_pbmc[["pca"]], dims = 1:5, nfeatures = 5)
 
-VizDimLoadings(filtered_pbmc, dims = 1:2, reduction  ="pca")
-
-# DimPlot is used to visualize all reduced representations (PCA, tSNE, UMAP, etc). Identity is still set to "orig.ident". DimPlot has built-in hiearachy of dimensionality reductions it tries to plot: first, it looks for UMAP, then (if not available) tSNE, then PCA. 
+VizDimLoadings(filtered_pbmc, dims = 1:2, reduction = "pca")
 
 DimPlot(filtered_pbmc, reduction = "pca")
 DimHeatmap(filtered_pbmc, dims = 1, cells = 500, balanced = TRUE)
 DimHeatmap(filtered_pbmc, dims = 1:15, cells = 500, balanced = TRUE)
-```
 
+```
 
 
 ### Determine the dimensionality of the dataset
 
-To overcome the extensive technical noise in any single feature for scRNA-seq data, Seurat clusters cells based on their PCA scores, with each PC essentially representing a ‘metafeature’ that combines information across a correlated feature set. Therefore, the top principal components represent a robust dataset compression.
 
-There are two ways to determine how many components do we need to keep the most of the variation (information) in our dataset. On the one hand, we can implement a resampling test inspired by the JackStraw procedure. We randomly permute a subset of the data (1% by default) and rerun PCA, constructing a ‘null distribution’ of feature scores and repeating this procedure. We identify ‘significant’ PCs as those with a strong enrichment of low p-value features.
-
-
-"JackStrawPlot" function provides a visualization tool for comparing the distribution of p-values for each PC with a uniform distribution (dashed line). ‘Significant’ PCs will show a strong enrichment of features with low p-values (solid curve above the dashed line).
-
-
-```{r }
-# JackStrawPlot(pbmc, dims = 1:15)
-
-```
-
-
-On the other hand, an alternative heuristic method generates an "Elbow plot": a ranking of principle components based on the percentage of variance explained by each one "ElbowPlot". 
+To determine the number of significant principal components (PCs):
 
 ```{r }
 ElbowPlot(filtered_pbmc)
@@ -303,45 +274,26 @@ cumu <- cumsum(pct)
 # Determine which PC exhibits cumulative percent greater than 90% and % variation associated with the PC as less than 5
 co1 <- which(cumu > 90 & pct < 5)[1]
 
-co1
-
-```
-
-Check the second metric, which identifies the PC where the percent change in variation between consecutive PCs is less than 0.1%:
-
-```{r }
 # Determine the difference between variation of PC and subsequent PC
-co2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1), decreasing = T)[1] + 1
+co2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1), decreasing = TRUE)[1] + 1
 
-# last point where change of % of variation is more than 0.1%.
-co2
-```
-
-
-```{r }
-# Minimum of the two calculation
+# Minimum of the two calculations
 pcs <- min(co1, co2)
 
-pcs
-```
-
-We can plot the elbow plot again and overlay the information determined using our metrics:
-
-
-```{r }
 # Create a dataframe with values
-plot_df <- data.frame(pct = pct, 
-           cumu = cumu, 
-           rank = 1:length(pct))
+plot_df <- data.frame(pct = pct, cumu = cumu, rank = 1:length(pct))
 opt_dims <- plot_df$rank[plot_df$rank > pcs][1]
 
-# Elbow plot to visualize 
-  ggplot(plot_df, aes(cumu, pct, label = rank, color = rank > pcs)) + 
+# Elbow plot to visualize
+ggplot(plot_df, aes(cumu, pct, label = rank, color = rank > pcs)) + 
   geom_text() + 
   geom_vline(xintercept = 90, color = "grey") + 
   geom_hline(yintercept = min(pct[pct > 5]), color = "grey") +
   theme_bw()
+
+
 ```
+
 * developed by members of the teaching team at the Harvard Chan Bioinformatics Core (HBC). 
 
 *Seurat recommends a default resolution of 0.8 for typical single-cell datasets. A higher resolution may be more suitable for larger datasets and vice versa.*
@@ -352,9 +304,11 @@ opt_dims <- plot_df$rank[plot_df$rank > pcs][1]
 filtered_pbmc <- FindNeighbors(filtered_pbmc, dims = 1:opt_dims)
 filtered_pbmc <- FindClusters(filtered_pbmc, resolution = 0.8)
 
-#View(filtered_pbmc@meta.data)
+# View cluster IDs of the first 5 cells
+head(Idents(filtered_pbmc), 5)
 
 DimPlot(filtered_pbmc, group.by = "RNA_snn_res.0.8", label = TRUE)
+
 ```
 
 *avoid overlaping clustering
@@ -384,22 +338,18 @@ DimPlot(filtered_pbmc, reduction = "umap", label = TRUE)
 ## tsne 
 
 ```{r }
-filtered_pbmc <- RunTSNE(filtered_pbmc,dims = 1:20) 
-TSNEPlot(object = filtered_pbmc, label = TRUE) 
+filtered_pbmc <- RunTSNE(filtered_pbmc, dims = 1:20) 
+TSNEPlot(object = filtered_pbmc, label = TRUE)
 ```
 *Done following SANGER singel cell workflow.*
 
 ```{r }
-# * Optional: segregation of clusters by cell cycle phase * 
-
 # Explore whether clusters segregate by cell cycle phase
-DimPlot(filtered_pbmc,
-        label = TRUE, 
-        split.by = "Phase")  + NoLegend()
-  
+DimPlot(filtered_pbmc, label = TRUE, split.by = "Phase") + NoLegend()
+
 ```
 
-## Cluster segregation by "nUMI", "nGene", "S.Score", "G2M.Score", "mitoRatio"
+## Cluster segregation by QC metrics
 
 The parameter min.cutoff of q10 is translated as 10% of the cells with the lowest expression of the gene will not exhibit any purple shading. This parameter is applied because when plotting, the order of the arguments will plot the positive cells above the negative cells and with min.cutoff argument we can determine the threshold for shading. 
 
@@ -419,25 +369,21 @@ FeaturePlot(filtered_pbmc,
 
 *Done following hbctraining workflow.*
 
-
+##Boxplot of nGene per cluster
 
 ```{r }
-# Boxplot of nGene per cluster
 ggplot(filtered_pbmc@meta.data) +
-    geom_boxplot(aes(x=RNA_snn_res.0.8, y=nGene, fill=RNA_snn_res.0.8)) +
-    NoLegend()
+  geom_boxplot(aes(x = RNA_snn_res.0.8, y = nGene, fill = RNA_snn_res.0.8)) +
+  NoLegend()
+
 
 ```
 
 
 
-
-
-
 # 8. Differential expression and marker selection
 
-Differential gene expression allow us to define gene markers specific to each cluster. It is important to find the correct resolution of the cluster before defining markers because by definition it is influenced how clusters are defined. It's recommended to do differential expression on the RNA assay. 
-DE can be done within two clusters as well as between a cluster and all the clusters.
+Differential gene expression allows us to define gene markers specific to each cluster.
 
 
 ```{r }
@@ -448,15 +394,21 @@ all.genes <- rownames(filtered_pbmc)
 filtered_pbmc <- ScaleData(filtered_pbmc, features = all.genes)
 ```
 
-Find markers for every cluster by comparing it to all remaining cells, while reporting only the positive ones. The test used: Wilcoxon Rank Sum. The default minimal percentage and lof2FC cutoff have been increased for speed, need's to be adjust to suit the data!
+
+Find markers for every cluster by comparing it to all remaining cells, while reporting only the positive ones. The test used: Wilcoxon Rank Sum. 
+
 
 ```{r }
-all.markers <- FindAllMarkers(filtered_pbmc, only.pos = T, min.pct = 0.5, logfc.threshold = 0.5)
+all.markers <- FindAllMarkers(filtered_pbmc, only.pos = TRUE, min.pct = 0.5, logfc.threshold = 0.5)
 ```
 
 
 ```{r }
 table(all.markers$cluster)
+
+top3_markers <- as.data.frame(all.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_log2FC))
+top3_markers
+
 ```
 
 
@@ -469,7 +421,7 @@ top3_markers
 
 We can try automatic annotation with SingleR, using reference dataset from celldex package
 
-```{r }
+```{r}
 monaco.ref <- celldex::MonacoImmuneData()
 # hpca.ref <- celldex::HumanPrimaryCellAtlasData()
 # dice.ref <- celldex::DatabaseImmuneCellExpressionData()
@@ -495,11 +447,10 @@ monaco.fine <- SingleR(test = sce,assay.type.test = 1,ref = monaco.ref,labels = 
 
 ```{r }
 table(monaco.main$pruned.labels)
+table(monaco.fine$pruned.labels)
+
 ```
 
-```{r }
-table(monaco.fine$pruned.labels)
-```
 
 Add the annotations to the Seurat Object metadata.
 
@@ -511,13 +462,13 @@ filtered_pbmc@meta.data$monaco.fine <- monaco.fine$pruned.labels
 
 ```{r }
 srat <- SetIdent(filtered_pbmc, value = "monaco.fine")
-DimPlot(srat, label = T , repel = T, label.size = 3) + NoLegend()
+DimPlot(srat, label = TRUE, repel = TRUE, label.size = 3) + NoLegend()
 ```
 
 
 
 ```{r }
-# List of known celltype markers
+# List of known cell type markers
 markers <- list()
 markers[["CD14+ monocytes"]] <- c("CD14", "LYZ")
 markers[["FCGR3A+ monocyte"]] <- c("FCGR3A", "MS4A7")
@@ -525,8 +476,9 @@ markers[["Macrophages"]] <- c("MARCO", "ITGAM", "ADGRE1")
 markers[["Conventional dendritic"]] <- c("FCER1A", "CST3")
 markers[["Plasmacytoid dendritic"]] <- c("IL3RA", "GZMB", "SERPINF1", "ITM2C")
 
-# Create dotplot based on RNA expression
-DotPlot(filtered_pbmc, markers, assay="RNA")
+# Create dot plot based on RNA expression
+DotPlot(filtered_pbmc, features = unlist(markers), assay = "RNA") + RotatedAxis()
+
 ```
 
 
@@ -534,57 +486,47 @@ DotPlot(filtered_pbmc, markers, assay="RNA")
 # Done following "A Guide to Analyzing Single-cell Datasets, John F.Ouyang" book.
 
 
-## Marker genes
+##Differential expression analysis
 
 ```{r }
-### B. Marker genes
-# Find Markers
-oupMarker <- FindAllMarkers(filtered_pbmc, only.pos = TRUE, 
-                            logfc.threshold = 1.0, min.pct = 0.2)
+# Find markers
+oupMarker <- FindAllMarkers(filtered_pbmc, only.pos = TRUE, logfc.threshold = 1.0, min.pct = 0.2)
 oupMarker <- data.table(oupMarker)
 oupMarker$pct.diff = oupMarker$pct.1 - oupMarker$pct.2
-oupMarker <- oupMarker[, c("cluster","gene","avg_log2FC","pct.1","pct.2",
-                           "pct.diff","p_val","p_val_adj")]
-#fwrite(oupMarker, sep = "\t", file = "images/clustMarkers.txt")
-filtered_pbmc@misc$marker <- oupMarker      # Store markers into Seurat object
+oupMarker <- oupMarker[, c("cluster","gene","avg_log2FC","pct.1","pct.2","pct.diff","p_val","p_val_adj")]
 
 # Check if known genes are in the marker gene list
-knownGenes <- c("CD34","CRHBP","GATA1", "CD14","IRF8","CD19",
-                "CD4","CD8B","GNLY")
+knownGenes <- c("CD34","CRHBP","GATA1", "CD14","IRF8","CD19","CD4","CD8B","GNLY")
 oupMarker[gene %in% knownGenes]
 
-# Get top genes for each cluster and do dotplot / violin plot
+# Get top genes for each cluster and do dot plot / violin plot
 oupMarker$cluster = factor(oupMarker$cluster, levels = unique(filtered_pbmc$seurat_clusters))
 oupMarker = oupMarker[order(cluster, -avg_log2FC)]
-genes.to.plot <- unique(oupMarker[cluster %in% unique(filtered_pbmc$seurat_clusters), 
-                                   head(.SD, 2), by="cluster"]$gene)
+genes.to.plot <- unique(oupMarker[cluster %in% unique(filtered_pbmc$seurat_clusters), head(.SD, 2), by="cluster"]$gene)
 
-# Set color fro gene expression
+# Set color for gene expression
 colGEX = c("grey85", brewer.pal(7, "Reds"))
 
 p1 <- DotPlot(filtered_pbmc, group.by = "seurat_clusters", features = genes.to.plot) + 
   coord_flip() + scale_color_gradientn(colors = colGEX) +
   theme(axis.text.x = element_text(angle = -45, hjust = 0))
-#ggsave(p1, width = 10, height = 8, filename = "images/clustMarkersDot.png")
 
 # Setup color palettes
 nClust <- uniqueN(Idents(filtered_pbmc))
 colCls <- colorRampPalette(brewer.pal(n = 10, name = "Paired"))(nClust)
 
+p2 <- VlnPlot(filtered_pbmc, group.by = "seurat_clusters", fill.by = "ident", cols = colCls, features = genes.to.plot, stack = TRUE, flip = TRUE)
 
-p2 <- VlnPlot(filtered_pbmc, group.by = "seurat_clusters", fill.by = "ident", cols = colCls,
-              features = genes.to.plot, stack = TRUE, flip = TRUE)
-#ggsave(p2, width = 10, height = 8, filename = "images/clustMarkersVln.png")
 ```
 
 ```{r }
 p1
 p2
-
 ```
 
 
 
+## Finding differentially expressed features (look for genetic markers)
 
 Seurat function can find markers that define clusters via differential expression. It identifies positive and negative markers of a single cluster, compared to all other cells (using FindMarkers( ident.1 = )). The function "FindAllMarkers" automates this process ofr all clusters, but it can only be tested groups of clusters vs. each other, or against all cells.  
 "min.pct" argument requires a feature to be detected at a minimum percentage in either of the two groups pf cells. 
@@ -592,20 +534,15 @@ Seurat function can find markers that define clusters via differential expressio
 "max.cells.per.ident" is an argument used to speed up computations by downsample each identity class to have no more cells than what is set to. 
 
 
-&nbsp;
+<!-- Footer -->
 <hr />
 <p style="text-align: center;">A work by <a href="https://github.com/mmerono/scRNA-seq-pipeline.git">Marta Meroño</a></p>
 <p style="text-align: center;"><span style="color: #808080;"><em>mmeronorafel@gmail.com</em></span></p>
-
 <!-- Add icon library -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-
 <!-- Add font awesome icons -->
 <p style="text-align: center;">
     <a href="https://www.linkedin.com/in/yan-holtz-2477534a/" class="fa fa-linkedin"></a>
     <a href="https://github.com/mmerono/scRNA-seq-pipeline.git" class="fa fa-github"></a>
 </p>
-
-&nbsp;
-
 
