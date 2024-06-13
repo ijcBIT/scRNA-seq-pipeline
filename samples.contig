@@ -1,0 +1,6 @@
+# Configuration file for scRNAseq GEX 5' pipeline
+
+FASTQS=/scRNAseq_data/singularity/fastqs
+SAMPLE_NAME=t_3k
+OUTPUT_DIR=/scRNAseq_data/analysis_results
+
