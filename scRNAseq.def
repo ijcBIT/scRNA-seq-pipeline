@@ -3,7 +3,7 @@ From: rocker/r-ver:4.4.0
 
 %labels
     Author mmerono
-    Image_Name CellRanger_Seurat
+    Image_Name CellRanger_Seurat_ShinyApp
     Version 1.0
     Description "Container for running scRNAseq analysis with CellRanger, Seurat and Shiny app"
     
