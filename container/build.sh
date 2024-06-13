@@ -13,5 +13,5 @@
 module load singularity
 
 
-# build the image and name it scRNAseq.sif
+# Build the Singularity container image and name it scRNAseq_refData.sif
 singularity build --remote --force scRNAseq_refData.sif scRNAseq_refData.def 2>&1 | tee singularity_build.log
