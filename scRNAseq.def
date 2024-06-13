@@ -3,11 +3,52 @@ From: rocker/r-ver:4.4.0
 
 %labels
     Author mmerono
+    Image_Name CellRanger_Seurat
     Version 1.0
-    Description "Container for running scRNAseq analysis with Seurat and CellRanger"
+    Description "Container for running scRNAseq analysis with CellRanger, Seurat and Shiny app"
+    
 
 %post
-    # Install system dependencies (Pandoc, hdf5, patch)
+
+    # Update package list and install necessary packages
+    apt-get update && apt-get install -y \
+    wget \
+    gdebi-core \
+    curl \
+    bzip2 \
+    build-essential \
+    python3 \
+    python3-pip \
+    alien
+
+    # Install Shiny Server
+    wget https://download3.rstudio.org/centos7/x86_64/shiny-server-1.5.22.1017-x86_64.rpm
+    alien -i shiny-server-1.5.22.1017-x86_64.rpm
+    rm shiny-server-1.5.22.1017-x86_64.rpm
+    
+    # Set the version 
+    CELLRANGER_VERSION=8.0.1
+
+    # Change directory to /opt
+    cd /opt
+
+    # Download cellranger
+    curl -o cellranger-8.0.1.tar.gz "https://cf.10xgenomics.com/releases/cell-exp/cellranger-8.0.1.tar.gz?Expires=1718230912&Key-Pair-Id=APKAI7S6A5RYOXBWRPDA&Signature=NlAbJ~SRhEeLNdMbP8B50PPYaoyg-KQsc1qJ7EQFl66w5oFIbZgR4cAdwCdPGY71fWKenngVb8VI8yyIEz4DeWoRBpH5r1h6EMhhia~cA3VZD4JaE9vfIz-bbcvoCPyw0APl554UD3qLL1troLxyxcD0lNw~idOa0TM0QIbOVRhXu4DUDFbwUEf9m4L0tTQKThFbb8XRv864p6c8VwLdjFjYLgSWcuvNtEH84nqrYCgXnxgwr-I7cSiN9fTkkj0CydAUtoPHUgEPKx2lLmx8oGYaMGbyI-ihTfb6lL7L2IfDmNPnPHLTh~z1guhVDLq62q6nwb336h7nO8Z7kFr3ug__" 
+    
+    # Download reference
+    curl -O "https://cf.10xgenomics.com/supp/cell-exp/refdata-gex-GRCh38-2024-A.tar.gz"
+    tar -xzvf "cellranger-${CELLRANGER_VERSION}.tar.gz"
+    tar -xzvf refdata-gex-GRCh38-2024-A.tar.gz
+
+    # Create a symlink to the cellranger
+    ln -s "/opt/cellranger-${CELLRANGER_VERSION}/cellranger" /usr/local/bin/cellranger
+
+    # Remove tarballs
+    rm "cellranger-${CELLRANGER_VERSION}.tar.gz"
+    rm refdata-gex-GRCh38-2024-A.tar.gz
+
+
+    # Install system dependencies (Pandoc, hdf5, patch, shiny)
     apt-get update && apt-get install -y \
       pandoc=2.9.2.1-3ubuntu2 \
       pandoc-citeproc=0.17.0.1-1build5 \
@@ -16,6 +57,10 @@ From: rocker/r-ver:4.4.0
       
     # Install package remotes as we want to set the version we are using for each library
     Rscript -e "install.packages('remotes')"
+  
+    # Install package shinythemes and DT to execute the shiny app
+    Rscript -e "install.packages('shinythemes')"
+    Rscript -e "install.packages('DT')"
     
     Rscript -e "remotes::install_version('xfun', version='0.44')"
     Rscript -e "remotes::install_version('dplyr', version='1.1.4')" 
@@ -43,7 +88,7 @@ From: rocker/r-ver:4.4.0
       libxml2-dev=2.9.13+dfsg-1ubuntu0.4 \
       libfreetype6-dev=2.11.1+dfsg-1ubuntu0.2 \
       libpng-dev=1.6.37-3build5 \
-      libtiff5-dev=4.3.0-6ubuntu0.8 \
+      libtiff5-dev \
       libjpeg-dev=8c-2ubuntu10
       
     # Install SingleR 
@@ -65,28 +110,6 @@ From: rocker/r-ver:4.4.0
     
     # Seurat requires libigraph to be installed
     apt-get update && apt-get install -y libigraph-dev=0.9.6+ds-2ubuntu1
-    
-    # Download and install cellranger 
-    apt-get update && apt-get install -y \
-    curl \
-    wget \
-    bzip2 \
-    build-essential \
-    python3 \
-    python3-pip
-
-    CELLRANGER_VERSION=7.2.0
-    cd /opt
-    wget "https://cf.10xgenomics.com/releases/cell-exp/cellranger-${CELLRANGER_VERSION}.tar.gz"
-    tar -xzvf "cellranger-${CELLRANGER_VERSION}.tar.gz"
-    ln -s "/opt/cellranger-${CELLRANGER_VERSION}/cellranger" /usr/local/bin/cellranger
-    rm "cellranger-${CELLRANGER_VERSION}.tar.gz"
-
-    # Update PATH
-    echo 'export PATH=/opt/cellranger:$PATH' >> ~/.bashrc
-    source ~/.bashrc
-
-
 
 
 
