@@ -1,6 +1,12 @@
 # Configuration file for scRNAseq GEX 5' pipeline
+# Set the cellranger variables manually 
 
-FASTQS=/scRNAseq_data/singularity/fastqs
-SAMPLE_NAME=t_3k
-OUTPUT_DIR=/scRNAseq_data/analysis_results
+# Folder of experiment raw data (fasta files)
+FASTQS=
+
+# Name of the sample 
+SAMPLE_NAME=
+
+# Output directory for the cellranger output
+OUTPUT_DIR=
 
