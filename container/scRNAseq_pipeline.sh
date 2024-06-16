@@ -1,22 +1,29 @@
 #!/bin/bash
 
-#SBATCH --job-name=scRNAseq_analysis
-#SBATCH --output=scRNAseq_analysis.out
-#SBATCH --error=scRNAseq_analysis.err
-#SBATCH --time=12:00:00
-#SBATCH --mem=110G
+#SBATCH --job-name=cellRanger_Seurat
+#SBATCH --time=20:00:00
+#SBATCH --output=%x.%j.out
+#SBATCH --error=%x.%j.err
+#SBATCH --mem=128G
+#SBATCH --cpus-per-task=8 
+
+# Record start time
+start=$(date +%s)
+
+# Load module 
 
 module load singularity
+
 
 # Step 1: Run cellranger
 echo "Running cellranger"
 
 # Run the cellranger count script inside the Singularity container
-singularity exec -C \
-  --bind /ijc/LABS/MERKEL/RAW/NGS/scRNAseq_data:/scRNAseq_data \
-  --bind /ijc/LABS/MERKEL/DATA/PROJECTS/mmerono/singularity:/scRNAseq_src \
-  /ijc/LABS/MERKEL/DATA/PROJECTS/mmerono/singularity/scRNAseq.sif \
-  /scRNAseq_src/cellranger_count.slm
+singularity exec \
+  --bind /mnt/beegfs/mmerono/:/scRNAseq_data \
+  scRNAseq_refData.sif \
+  /scRNAseq_data/cellranger_count.slm
+
 
 # Check if cellranger was successful
 if [ $? -ne 0 ]; then
@@ -25,40 +32,51 @@ if [ $? -ne 0 ]; then
 fi
 
 
+#record end time, total run time and print it
+end=$(date +%s)
+runtime=$((end-start))
+echo "Cellranger runtime: $runtime seconds"
+
+
+# Record start time
+start=$(date +%s)
+
+
 # Step 2: Generate HTML/pdf
 echo "Generating HTML and Pdf"
 
-singularity exec -C \
-  --bind /ijc/LABS/MERKEL/RAW/NGS/scRNAseq_data:/scRNAseq_data \
-  --bind /ijc/LABS/MERKEL/DATA/PROJECTS/mmerono/singularity:/scRNAseq_src \
-  /ijc/LABS/MERKEL/DATA/PROJECTS/mmerono/singularity/scRNAseq.sif \
-    Rscript -e "rmarkdown::render('/scRNAseq_src/scRNAseq.Rmd', 
-                                output_file = '/scRNAseq_src/scRNAseq_singularity_output.html', 
-                                params = list(file_10X_h5 = '/scRNAseq_data/filtered_feature_bc_matrix.h5'))"
+# Generate HTML output
+singularity exec \
+  --bind /mnt/beegfs/mmerono/:/scRNAseq_data \
+  scRNAseq_refData.sif \
+  Rscript -e "rmarkdown::render('/scRNAseq_data/scRNAseq.Rmd', 
+                                output_format = 'html_document', 
+                                output_file = 'scRNAseq_singularity_out.html', 
+                                params = list(file_10X_h5 = '/scRNAseq_data/analysis_results/cellranger_out/outs/filtered_feature_bc_matrix.h5'))"
 
+# Generate PDF output
+singularity exec \
+  --bind /mnt/beegfs/mmerono/:/scRNAseq_data \
+  scRNAseq_refData.sif \
+  Rscript -e "rmarkdown::render('/scRNAseq_data/scRNAseq.Rmd', 
+                                output_format = 'pdf_document', 
+                                output_file = 'scRNAseq_singularity_out.pdf', 
+                                params = list(file_10X_h5 = '/scRNAseq_data/analysis_results/cellranger_out/outs/filtered_feature_bc_matrix.h5'))"
+
+
+
+echo date
 # Check if HTML/Pdf generation was successful
 if [ $? -ne 0 ]; then
-  echo "HTML generation failed."
+  echo "HTML/PDF generation failed."
   exit 1
 fi
 
 
-# Step 3: Run the Shiny app
-echo "Running Shiny app"
+echo "All the steps completed successfully!" 
 
-APP_DIR=/ijc/LABS/MERKEL/DATA/PROJECTS/mmerono/singularity
-SIF_FILE=$APP_DIR/scRNAseq.sif
-APP_FILE=$APP_DIR/app.R
+#record end time, total run time and print it
+end=$(date +%s)
+runtime=$((end-start))
 
-singularity exec $SIF_FILE Rscript -e "shiny::runApp('$APP_FILE', host='0.0.0.0', port=3838)"
-
-
-# Check if Shiny app was successful
-if [ $? -ne 0 ]; then
-  echo "Shiny app failed."
-  exit 1
-fi
-
-
-
-echo "All the steps completed successfully!"
+echo "HTML/PDF generation runtime: $runtime seconds"
