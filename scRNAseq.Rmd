@@ -1,16 +1,13 @@
 ---
 title: "scRNAseq Analysis"
-author: "Marta Meroño"
 date: "`r Sys.Date()`"
-params:
-  file_10X_h5: "~/Shares/HPC/MERKEL/RAW/NGS/scRNAseq_data/filtered_feature_bc_matrix.h5"
 output:
   html_document:
     toc: true
     toc_float: true
     code_folding: "hide"
-    theme: "cerulean"
-    highlight: "textmate"
+    theme: "cosmo"
+    highlight: "pygments"
     fig_width: 7
     fig_height: 5
     css: styles.css
@@ -23,14 +20,68 @@ output:
     extra_dependencies: ["caption"]
     fig_width: 7
     fig_height: 5
+params:
+  file_10X_h5: NULL
 fontsize: 11pt
 geometry: margin=1in
 ---
 
 
-# Introduction
+```{css, echo=FALSE}
+body {
+  font-family: Arial, sans-serif;
+  line-height: 1.6;
+}
+.text-box {
+  border: 1px solid #dcdcdc;
+  padding: 15px;
+  margin: 20px 0;
+  background-color: #e6f7ff; /* Light blue background color */
+  border-radius: 5px;
+}
+.title-box {
+  background-color: #007acc;
+  color: white;
+  padding: 10px;
+  border-radius: 5px;
+  font-size: 1.5em;
+  margin-bottom: 20px;
+}
 
-This is a comprehensive analysis of single-cell RNA sequencing (scRNA-seq) data.
+# Create the "plots" directory if it doesn't exist
+
+  
+```
+
+***
+
+scRNAseq Analysis Pipeline
+
+
+# Overview
+
+<div class="text-box">
+This document outlines an automated pipeline for analyzing single-cell RNA sequencing (scRNA-seq) data using the 10x Genomics Chromium platform with 5' gene expression (GEX) captures. The analysis includes>
+1. Loading data from `.h5` files
+
+2. Performing quality control and normalization
+    
+3. Cell cycle scoring
+    
+4. Annotating cells using SingleR
+
+5. Integrating multiple samples
+
+6. Visualizing results
+
+7. Identifying marker genes
+
+8. Differential expression and marker selection
+
+9. Cell type annotation using SingleR
+</div>
+
+
 
 ```{r setup, include=FALSE}
 # Load required libraries
@@ -53,23 +104,47 @@ knitr::opts_chunk$set(dev = 'png')
 # 0. Load the data
 
 ```{r}
-# Load the PBMC dataset from an .h5 file
-pbmc.data <- Read10X_h5(params$file_10X_h5)
+# Function to load data and create Seurat object
+load_and_create_seurat_object <- function(file_path, project_name) {
+  data <- Read10X_h5(file_path, use.names = TRUE, unique.features = TRUE)
+  
+  # Check and extract 'Gene Expression' modality if present
+  if (is.list(data) && "Gene Expression" %in% names(data)) {
+    rna_data <- data$`Gene Expression`
+  } else if (is.list(data)) {
+    rna_data <- data[[1]]
+  } else {
+    rna_data <- data
+  }
 
-# Initialize the Seurat object with the filtered feature barcode matrix
-pbmc <- CreateSeuratObject(counts = pbmc.data, project = "scRNA_seq", min.cells = 3, min.features = 100)
+  # Create Seurat object
+  seurat_object <- CreateSeuratObject(counts = rna_data, project = project_name, min.cells = 3, min.features = 100)
+  
+  return(seurat_object)
+}
 
-# Display the Seurat object
-pbmc
+project_name <- "scRNAseq_analysis"
+
+# Create Seurat object using the file path from params
+seurat_obj <- load_and_create_seurat_object(params$file_10X_h5, project_name)
+
+# Save the Seurat object or proceed with further analysis
+saveRDS(seurat_obj, file = "seurat_object.rds")
+
+
 ```
 
-# 1. QC and selecting cells for further analysis
+# 1. Quality control (QC) and filtering
 
-### Novelty score
+### Compute QC Metrics
 
 ```{r }
 # Add number of genes per UMI for each cell to metadata
-pbmc$log10GenesPerUMI <- log10(pbmc$nFeature_RNA) / log10(pbmc$nCount_RNA)
+seurat_obj$log10GenesPerUMI <- log10(seurat_obj$nFeature_RNA) / log10(seurat_obj$nCount_RNA)
+
+# Compute percent mito ratio
+seurat_obj$mitoRatio <- PercentageFeatureSet(object = seurat_obj, pattern = "^MT-") / 100
+
 ```
 
 ### Ratio of mitochondiral
@@ -78,14 +153,14 @@ In single-cell RNA sequencing analysis, we aim to filter out specific cells to e
 
 ```{r }
 # Compute percent mito ratio
-pbmc$mitoRatio <- PercentageFeatureSet(object = pbmc, pattern = "^MT-")
-pbmc$mitoRatio <- pbmc@meta.data$mitoRatio / 100
+seurat_obj$mitoRatio <- PercentageFeatureSet(object = seurat_obj, pattern = "^MT-")
+seurat_obj$mitoRatio <- seurat_obj@meta.data$mitoRatio / 100
 
 ```
 
 ```{r }
 # Create metadata dataframe
-metadata <- pbmc@meta.data
+metadata <- seurat_obj@meta.data
 
 # Add cell IDs to metadata
 metadata$cells <- rownames(metadata)
@@ -95,7 +170,7 @@ metadata <- metadata %>%
   dplyr::rename(seq_folder = orig.ident, nUMI = nCount_RNA, nGene = nFeature_RNA)
 
 # Add metadata back to Seurat object
-pbmc@meta.data <- metadata
+seurat_obj@meta.data <- metadata
 
                            
 ```
@@ -103,8 +178,9 @@ pbmc@meta.data <- metadata
 ### Cell counts visualization
 
 ```{r, fig.align="center", fig.width=6, fig.height=6, fig.cap="Figure 1: ." }
+
 # Visualize the correlation between genes detected and number of UMIs
-metadata %>% 
+p1 <- metadata %>% 
   ggplot(aes(x = nUMI, y = nGene, color = mitoRatio)) + 
   geom_point() + 
   scale_colour_gradient(low = "gray90", high = "black") +
@@ -122,6 +198,11 @@ metadata %>%
   ) +
   theme(plot.title = element_text(hjust = 0.5))
 
+# Save the plot
+ggsave("plots/cell_counts_visualization.png", plot = p1)
+p1
+
+
 ```
 
 
@@ -132,8 +213,8 @@ In the context of quality control (QC) metrics visualization in single-cell RNA 
 
 ```{r, fig.align="center", fig.width=6, fig.height=6, fig.cap="Figure 2: ."}
 # Visualize QC metrics as a violin plot
-VlnPlot(
-  object = pbmc,
+p2 <- VlnPlot(
+  object = seurat_obj,
   features = c("nUMI", "nGene", "mitoRatio"),
   pt.size = 0.01,
   ncol = 3
@@ -142,6 +223,12 @@ VlnPlot(
     axis.text.x = element_text(angle = 0, hjust = 0.5),
     axis.title.x = element_blank()
   )
+
+# Save the plot
+ ggsave("plots/qc_violin_plot.png", plot = p2)
+
+p2
+
 
 ```
 
@@ -159,7 +246,7 @@ Cell-level filtering
 ```{r }
 # Filter out low-quality cells using selected thresholds
 filtered_pbmc <- subset(
-  x = pbmc,
+  x = seurat_obj,
   subset = (nUMI >= 500) & 
     (nGene >= 250) & 
     (log10GenesPerUMI > 0.80) & 
@@ -216,8 +303,11 @@ top10 <- head(VariableFeatures(filtered_pbmc), 10)
 var_features <- VariableFeaturePlot(filtered_pbmc)
 lab_points <- LabelPoints(plot = var_features, points = top10, repel = TRUE)
 
-lab_points
+# Save the plots
+ggsave("plots/variable_features.png", plot = var_features)
+ggsave("plots/variable_features_labeled.png", plot = lab_points)
 
+lab_points
 
 ```
 
@@ -234,18 +324,45 @@ We also split the figure by cell cycle phase, to evaluate similarities and/or di
 filtered_pbmc <- RunPCA(filtered_pbmc, features = VariableFeatures(object = filtered_pbmc))
 
 # Plot the PCA colored by cell cycle phase
-DimPlot(filtered_pbmc, reduction = "pca", group.by = "Phase", split.by = "Phase")
+p3 <- DimPlot(filtered_pbmc, reduction = "pca", group.by = "Phase", split.by = "Phase")
+
+# Save the plot
+ggsave("plots/pca_phase.png", plot = p3)
+
+p3
 
 ```
 
 ```{r}
 print(filtered_pbmc[["pca"]], dims = 1:5, nfeatures = 5)
 
-VizDimLoadings(filtered_pbmc, dims = 1:2, reduction = "pca")
+p4 <- VizDimLoadings(filtered_pbmc, dims = 1:2, reduction = "pca")
 
-DimPlot(filtered_pbmc, reduction = "pca")
-DimHeatmap(filtered_pbmc, dims = 1, cells = 500, balanced = TRUE)
-DimHeatmap(filtered_pbmc, dims = 1:15, cells = 500, balanced = TRUE)
+# Save the plot
+ggsave("plots/pca_loadings.png", plot = p4)
+
+p4
+
+p5 <- DimPlot(filtered_pbmc, reduction = "pca")
+
+# Save the plot
+ggsave("plots/pca_plot.png", plot = p5)
+
+p5
+
+p6 <- DimHeatmap(filtered_pbmc, dims = 1, cells = 500, balanced = TRUE)
+
+# Save the plot
+ggsave("plots/pca_heatmap1.png", plot = p6)
+
+p6
+
+p7 <- DimHeatmap(filtered_pbmc, dims = 1:15, cells = 500, balanced = TRUE)
+
+# Save the plot
+ggsave("plots/pca_heatmap2.png", plot = p7)
+
+p7
 
 ```
 
@@ -256,10 +373,15 @@ DimHeatmap(filtered_pbmc, dims = 1:15, cells = 500, balanced = TRUE)
 To determine the number of significant principal components (PCs):
 
 ```{r }
-ElbowPlot(filtered_pbmc)
+p8 <- ElbowPlot(filtered_pbmc)
+
+# Save the plot
+ggsave("plots/elbow_plot.png", plot = p8)
+
+p8
+
 ```
 
-In this case, we can observe an "elbow" around P10-11, meaning that the majority of true signals is captured in between the first 10 PCs. 
 
 Where the "elbow" appears is usually the threshold for identifying the majority of the variation. This method can be a bit subjective about where to locate the "elbow". To help identifying we can use this plot:
 
@@ -285,16 +407,22 @@ plot_df <- data.frame(pct = pct, cumu = cumu, rank = 1:length(pct))
 opt_dims <- plot_df$rank[plot_df$rank > pcs][1]
 
 # Elbow plot to visualize
-ggplot(plot_df, aes(cumu, pct, label = rank, color = rank > pcs)) + 
+p9 <- ggplot(plot_df, aes(cumu, pct, label = rank, color = rank > pcs)) + 
   geom_text() + 
   geom_vline(xintercept = 90, color = "grey") + 
   geom_hline(yintercept = min(pct[pct > 5]), color = "grey") +
   theme_bw()
 
+# Save the plot
+ggsave("plots/elbow_plot_annotated.png", plot = p9)
+
+p9
+
+
 
 ```
 
-* developed by members of the teaching team at the Harvard Chan Bioinformatics Core (HBC). 
+*Developed by members of the teaching team at the Harvard Chan Bioinformatics Core (HBC).*
 
 *Seurat recommends a default resolution of 0.8 for typical single-cell datasets. A higher resolution may be more suitable for larger datasets and vice versa.*
 
@@ -307,11 +435,16 @@ filtered_pbmc <- FindClusters(filtered_pbmc, resolution = 0.8)
 # View cluster IDs of the first 5 cells
 head(Idents(filtered_pbmc), 5)
 
-DimPlot(filtered_pbmc, group.by = "RNA_snn_res.0.8", label = TRUE)
+p10 <- DimPlot(filtered_pbmc, group.by = "RNA_snn_res.0.8", label = TRUE)
+
+# Save the plot
+ggsave("plots/cluster_plot.png", plot = p10)
+
+p10
+
 
 ```
 
-*avoid overlaping clustering
 
 The lower the resolution the less clusters it will group the data in. High resolution will try to find more clusters. 
 Cells are clustered based on their gene expression profile. 
@@ -332,20 +465,38 @@ By default, the clusters are numbered by the number of cells with cluster 0 havi
 
 ```{r }
 filtered_pbmc <- RunUMAP(filtered_pbmc, dims = 1:opt_dims)
-DimPlot(filtered_pbmc, reduction = "umap", label = TRUE)
+p11 <- DimPlot(filtered_pbmc, reduction = "umap", label = TRUE)
+
+# Save the plot
+ggsave("plots/umap_plot.png", plot = p11)
+
+p11
+
 ```
 
 ## tsne 
 
 ```{r }
 filtered_pbmc <- RunTSNE(filtered_pbmc, dims = 1:20) 
-TSNEPlot(object = filtered_pbmc, label = TRUE)
+p12 <- TSNEPlot(object = filtered_pbmc, label = TRUE)
+
+# Save the plot
+ggsave("plots/tsne_plot.png", plot = p12)
+
+p12
+
 ```
 *Done following SANGER singel cell workflow.*
 
 ```{r }
 # Explore whether clusters segregate by cell cycle phase
-DimPlot(filtered_pbmc, label = TRUE, split.by = "Phase") + NoLegend()
+p13 <- DimPlot(filtered_pbmc, label = TRUE, split.by = "Phase") + NoLegend()
+
+# Save the plot
+ggsave("plots/phase_seg_plot.png", plot = p13)
+
+p13
+
 
 ```
 
@@ -357,13 +508,19 @@ The parameter min.cutoff of q10 is translated as 10% of the cells with the lowes
 
 metrics <-  c("nUMI", "nGene", "S.Score", "G2M.Score", "mitoRatio")
 
-FeaturePlot(filtered_pbmc, 
+p14 <- FeaturePlot(filtered_pbmc, 
             reduction = "umap", 
             features = metrics,
             pt.size = 0.4, 
             order = TRUE,
             min.cutoff = 'q10',
             label = TRUE)
+
+# Save the plot
+ggsave("plots/feature_plot.png", plot = p14)
+
+p14
+
 ```
 
 
@@ -372,10 +529,14 @@ FeaturePlot(filtered_pbmc,
 ##Boxplot of nGene per cluster
 
 ```{r }
-ggplot(filtered_pbmc@meta.data) +
+p15 <- ggplot(filtered_pbmc@meta.data) +
   geom_boxplot(aes(x = RNA_snn_res.0.8, y = nGene, fill = RNA_snn_res.0.8)) +
   NoLegend()
 
+# Save the plot
+ggsave("plots/nGene_boxplot.png", plot = p15)
+
+p15
 
 ```
 
@@ -392,6 +553,7 @@ filtered_pbmc <- NormalizeData(filtered_pbmc)
 filtered_pbmc <- FindVariableFeatures(filtered_pbmc, selection.method = "vst", nfeatures = 2000)
 all.genes <- rownames(filtered_pbmc)
 filtered_pbmc <- ScaleData(filtered_pbmc, features = all.genes)
+
 ```
 
 
@@ -423,8 +585,6 @@ We can try automatic annotation with SingleR, using reference dataset from celld
 
 ```{r}
 monaco.ref <- celldex::MonacoImmuneData()
-# hpca.ref <- celldex::HumanPrimaryCellAtlasData()
-# dice.ref <- celldex::DatabaseImmuneCellExpressionData()
 ```
 
 convert our Seurat object to single cell experiment for convinience:
@@ -438,10 +598,7 @@ sce
 ```{r }
 monaco.main <- SingleR(test = sce,assay.type.test = 1,ref = monaco.ref,labels = monaco.ref$label.main)
 monaco.fine <- SingleR(test = sce,assay.type.test = 1,ref = monaco.ref,labels = monaco.ref$label.fine)
-# hpca.main <- SingleR(test = sce,assay.type.test = 1,ref = hpca.ref,labels = hpca.ref$label.main)
-# hpca.fine <- SingleR(test = sce,assay.type.test = 1,ref = hpca.ref,labels = hpca.ref$label.fine)
-# dice.main <- SingleR(test = sce,assay.type.test = 1,ref = dice.ref,labels = dice.ref$label.main)
-# dice.fine <- SingleR(test = sce,assay.type.test = 1,ref = dice.ref,labels = dice.ref$label.fine)
+
 ```
 
 
@@ -454,7 +611,6 @@ table(monaco.fine$pruned.labels)
 
 Add the annotations to the Seurat Object metadata.
 
-
 ```{r }
 filtered_pbmc@meta.data$monaco.main <- monaco.main$pruned.labels
 filtered_pbmc@meta.data$monaco.fine <- monaco.fine$pruned.labels
@@ -462,33 +618,53 @@ filtered_pbmc@meta.data$monaco.fine <- monaco.fine$pruned.labels
 
 ```{r }
 srat <- SetIdent(filtered_pbmc, value = "monaco.fine")
-DimPlot(srat, label = TRUE, repel = TRUE, label.size = 3) + NoLegend()
+p16 <- DimPlot(srat, label = TRUE, repel = TRUE, label.size = 3) + NoLegend()
+
+# Save the plot
+ggsave("plots/annotation_plot.png", plot = p16)
+
+p16
+
 ```
 
 
 
+Extract top 10 cell types and their top 10 expressed genes
+
 ```{r }
-# List of known cell type markers
-markers <- list()
-markers[["CD14+ monocytes"]] <- c("CD14", "LYZ")
-markers[["FCGR3A+ monocyte"]] <- c("FCGR3A", "MS4A7")
-markers[["Macrophages"]] <- c("MARCO", "ITGAM", "ADGRE1")
-markers[["Conventional dendritic"]] <- c("FCER1A", "CST3")
-markers[["Plasmacytoid dendritic"]] <- c("IL3RA", "GZMB", "SERPINF1", "ITM2C")
+
+# Get the top 10 cell types
+top_cell_types <- names(sort(table(filtered_pbmc@meta.data$monaco.main), decreasing = TRUE))[1:10]
+
+# Find top 10 expressed genes for each cell type
+top_genes <- lapply(top_cell_types, function(cell_type) {
+  cells <- which(filtered_pbmc@meta.data$monaco.main == cell_type)
+  avg_exp <- rowMeans(GetAssayData(filtered_pbmc, slot = "data")[, cells])
+  names(sort(avg_exp, decreasing = TRUE))[1:10]
+})
+
+# Combine the list of top genes
+top_genes <- unique(unlist(top_genes))
 
 # Create dot plot based on RNA expression
-DotPlot(filtered_pbmc, features = unlist(markers), assay = "RNA") + RotatedAxis()
+p17 <- DotPlot(filtered_pbmc, features = top_genes, assay = "RNA") +
+  ggtitle("Top 10 Cell Types and Their Top 10 Expressed Genes") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Save the plot
+ggsave("plots/dot_plot_top_genes.png", plot = p17)
+
+# Display the plot
+print(p17)
+
 
 ```
 
 
-
-# Done following "A Guide to Analyzing Single-cell Datasets, John F.Ouyang" book.
-
-
-##Differential expression analysis
+## Differential expression analysis
 
 ```{r }
+
 # Find markers
 oupMarker <- FindAllMarkers(filtered_pbmc, only.pos = TRUE, logfc.threshold = 1.0, min.pct = 0.2)
 oupMarker <- data.table(oupMarker)
@@ -526,21 +702,13 @@ p2
 
 
 
-## Finding differentially expressed features (look for genetic markers)
-
-Seurat function can find markers that define clusters via differential expression. It identifies positive and negative markers of a single cluster, compared to all other cells (using FindMarkers( ident.1 = )). The function "FindAllMarkers" automates this process ofr all clusters, but it can only be tested groups of clusters vs. each other, or against all cells.  
-"min.pct" argument requires a feature to be detected at a minimum percentage in either of the two groups pf cells. 
-"thresh.test" argument requires a feature to be differentially expressed on average by some amount between two groups. 
-"max.cells.per.ident" is an argument used to speed up computations by downsample each identity class to have no more cells than what is set to. 
-
-
 <!-- Footer -->
 <hr />
 <p style="text-align: center;">A work by <a href="https://github.com/mmerono/scRNA-seq-pipeline.git">Marta Meroño</a></p>
 <p style="text-align: center;"><span style="color: #808080;"><em>mmeronorafel@gmail.com</em></span></p>
-<!-- Add icon library -->
+
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-<!-- Add font awesome icons -->
+
 <p style="text-align: center;">
     <a href="https://www.linkedin.com/in/yan-holtz-2477534a/" class="fa fa-linkedin"></a>
     <a href="https://github.com/mmerono/scRNA-seq-pipeline.git" class="fa fa-github"></a>
