@@ -48,8 +48,6 @@ body {
   margin-bottom: 20px;
 }
 
-# Create the "plots" directory if it doesn't exist
-
   
 ```
 
