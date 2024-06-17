@@ -1,4 +1,4 @@
-# Configuration file for scRNAseq GEX 5' pipeline
+# Configuration file for scRNAseq pipeline
 # Set the cellranger variables manually 
 
 # Folder of experiment raw data (fasta files)
