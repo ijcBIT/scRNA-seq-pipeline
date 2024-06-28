@@ -1,5 +1,3 @@
-
-
 library(shiny)
 library(xfun)
 library(dplyr)
@@ -16,6 +14,27 @@ library(shinyWidgets)
 
 options(shiny.maxRequestSize = 50 * 1024^2)
 
+
+# Function to load data and create Seurat object
+load_and_create_seurat_object <- function(file_path, project_name) {
+  data <- Read10X_h5(file_path, use.names = TRUE, unique.features = TRUE)
+  
+  # Check and extract 'Gene Expression' modality if present
+  if (is.list(data) && "Gene Expression" %in% names(data)) {
+    rna_data <- data$`Gene Expression`
+  } else if (is.list(data)) {
+    rna_data <- data[[1]]
+  } else {
+    rna_data <- data
+  }
+  
+  # Create Seurat object
+  seurat_object <- CreateSeuratObject(counts = rna_data, project = project_name, min.cells = 3, min.features = 100)
+  
+  return(seurat_object)
+}
+
+# Define UI
 ui <- fluidPage(
   theme = shinytheme("flatly"),
   tags$head(
@@ -91,25 +110,26 @@ ui <- fluidPage(
   )
 )
 
+# Define server logic
 server <- function(input, output, session) {
-  pbmc.data <- eventReactive(input$loadData, {
-    req(input$dataFile)
-    Read10X_h5(input$dataFile$datapath)
-  })
+  seurat_obj <- reactiveVal(NULL)
   
-  pbmc <- eventReactive(input$loadData, {
-    req(pbmc.data())
-    CreateSeuratObject(counts = pbmc.data(), project = "scRNA_seq", min.cells = 3, min.features = 100)
+  observeEvent(input$loadData, {
+    req(input$dataFile)
+    file_path <- input$dataFile$datapath
+    project_name <- "scRNAseq_analysis"
+    
+    seurat_obj(load_and_create_seurat_object(file_path, project_name))
   })
   
   output$summary <- renderPrint({
-    req(pbmc())
-    pbmc()
+    req(seurat_obj())
+    seurat_obj()
   })
   
   observeEvent(input$filterData, {
-    req(pbmc())
-    seurat_obj <- pbmc()
+    req(seurat_obj())
+    seurat_obj <- seurat_obj()
     seurat_obj$log10GenesPerUMI <- log10(seurat_obj$nFeature_RNA) / log10(seurat_obj$nCount_RNA)
     seurat_obj$mitoRatio <- PercentageFeatureSet(object = seurat_obj, pattern = "^MT-") / 100
     seurat_obj@meta.data <- seurat_obj@meta.data %>%
@@ -130,39 +150,39 @@ server <- function(input, output, session) {
     
     if (!is.null(filtered_obj)) {
       cells_after <- ncol(filtered_obj)
-      pbmc <<- reactive(filtered_obj)
-      output$summary <- renderPrint({ pbmc() })
+      seurat_obj <<- reactive(filtered_obj)
+      output$summary <- renderPrint({ seurat_obj() })
       showNotification(paste("Filtered from", cells_before, "to", cells_after, "cells."), type = "message")
     }
   })
   
   observeEvent(input$normalizeData, {
-    req(pbmc())
-    seurat_obj <- NormalizeData(pbmc(), normalization.method = "LogNormalize", scale.factor = 10000, assay = "RNA")
-    pbmc <<- reactive(seurat_obj)
-    output$summary <- renderPrint({ pbmc() })
+    req(seurat_obj())
+    seurat_obj <- NormalizeData(seurat_obj(), normalization.method = "LogNormalize", scale.factor = 10000, assay = "RNA")
+    seurat_obj <<- reactive(seurat_obj)
+    output$summary <- renderPrint({ seurat_obj() })
   })
   
   observeEvent(input$cellCycleScoring, {
-    req(pbmc())
+    req(seurat_obj())
     s.genes <- cc.genes.updated.2019$s.genes
     g2m.genes <- cc.genes.updated.2019$g2m.genes
-    seurat_obj <- CellCycleScoring(pbmc(), s.features = s.genes, g2m.features = g2m.genes)
-    pbmc <<- reactive(seurat_obj)
-    output$summary <- renderPrint({ table(pbmc()$Phase) })
+    seurat_obj <- CellCycleScoring(seurat_obj(), s.features = s.genes, g2m.features = g2m.genes)
+    seurat_obj <<- reactive(seurat_obj)
+    output$summary <- renderPrint({ table(seurat_obj()$Phase) })
   })
   
   observeEvent(input$variableFeatures, {
-    req(pbmc())
-    seurat_obj <- FindVariableFeatures(pbmc(), selection.method = "vst", nfeatures = 2000)
-    pbmc <<- reactive(seurat_obj)
-    output$summary <- renderPrint({ pbmc() })
+    req(seurat_obj())
+    seurat_obj <- FindVariableFeatures(seurat_obj(), selection.method = "vst", nfeatures = 2000)
+    seurat_obj <<- reactive(seurat_obj)
+    output$summary <- renderPrint({ seurat_obj() })
   })
   
   observeEvent(input$scaleData, {
-    req(pbmc())
-    seurat_obj <- ScaleData(pbmc())
-    pbmc <<- reactive(seurat_obj)
+    req(seurat_obj())
+    seurat_obj <- ScaleData(seurat_obj())
+    seurat_obj <<- reactive(seurat_obj)
     
     output$scalingDescription <- renderText({
       "Scaling the data involves removing unwanted sources of variation; e.g. technical variation, batch effects, biological variations due to cell cycle state, mitochondrial contamination.
@@ -173,89 +193,89 @@ server <- function(input, output, session) {
     })
     
     output$variableFeaturesPlot <- renderPlot({
-      var_features <- VariableFeaturePlot(pbmc())
+      var_features <- VariableFeaturePlot(seurat_obj())
       var_features
     })
     
     output$labelPointsPlot <- renderPlot({
-      top10 <- head(VariableFeatures(pbmc()), 10)
-      var_features <- VariableFeaturePlot(pbmc())
+      top10 <- head(VariableFeatures(seurat_obj()), 10)
+      var_features <- VariableFeaturePlot(seurat_obj())
       lab_points <- LabelPoints(plot = var_features, points = top10, repel = TRUE)
       lab_points
     })
   })
   
   observeEvent(input$runPCA, {
-    req(pbmc())
-    seurat_obj <- RunPCA(pbmc(), features = VariableFeatures(object = pbmc()))
-    pbmc <<- reactive(seurat_obj)
-    output$pcaPlot <- renderPlot({ DimPlot(pbmc(), reduction = "pca", group.by = "Phase", split.by = "Phase") })
+    req(seurat_obj())
+    seurat_obj <- RunPCA(seurat_obj(), features = VariableFeatures(object = seurat_obj()))
+    seurat_obj <<- reactive(seurat_obj)
+    output$pcaPlot <- renderPlot({ DimPlot(seurat_obj(), reduction = "pca", group.by = "Phase", split.by = "Phase") })
     output$pcaLoadingsPlot <- renderPlot({
-      VizDimLoadings(pbmc(), dims = 1:2, reduction = "pca")
+      VizDimLoadings(seurat_obj(), dims = 1:2, reduction = "pca")
     })
     output$pcaHeatmap1 <- renderPlot({
-      DimHeatmap(pbmc(), dims = 1, cells = 500, balanced = TRUE)
+      DimHeatmap(seurat_obj(), dims = 1, cells = 500, balanced = TRUE)
     })
     output$pcaHeatmap2 <- renderPlot({
-      DimHeatmap(pbmc(), dims = 1:15, cells = 500, balanced = TRUE)
+      DimHeatmap(seurat_obj(), dims = 1:15, cells = 500, balanced = TRUE)
     })
   })
   
   observeEvent(input$runUMAP, {
-    req(pbmc())
-    seurat_obj <- RunUMAP(pbmc(), dims = 1:20)
-    pbmc <<- reactive(seurat_obj)
-    output$umapPlot <- renderPlot({ DimPlot(pbmc(), reduction = "umap", label = TRUE) })
+    req(seurat_obj())
+    seurat_obj <- RunUMAP(seurat_obj(), dims = 1:20)
+    seurat_obj <<- reactive(seurat_obj)
+    output$umapPlot <- renderPlot({ DimPlot(seurat_obj(), reduction = "umap", label = TRUE) })
   })
   
   observeEvent(input$runTSNE, {
-    req(pbmc())
-    seurat_obj <- RunTSNE(pbmc(), dims = 1:20)
-    pbmc <<- reactive(seurat_obj)
-    output$tsnePlot <- renderPlot({ TSNEPlot(object = pbmc(), label = TRUE) })
+    req(seurat_obj())
+    seurat_obj <- RunTSNE(seurat_obj(), dims = 1:20)
+    seurat_obj <<- reactive(seurat_obj)
+    output$tsnePlot <- renderPlot({ TSNEPlot(object = seurat_obj(), label = TRUE) })
   })
   
   observeEvent(input$findNeighbors, {
-    req(pbmc())
-    seurat_obj <- FindNeighbors(pbmc(), dims = 1:20)
-    pbmc <<- reactive(seurat_obj)
-    output$summary <- renderPrint({ pbmc() })
+    req(seurat_obj())
+    seurat_obj <- FindNeighbors(seurat_obj(), dims = 1:20)
+    seurat_obj <<- reactive(seurat_obj)
+    output$summary <- renderPrint({ seurat_obj() })
   })
   
   observeEvent(input$findClusters, {
-    req(pbmc())
-    seurat_obj <- FindClusters(pbmc(), resolution = 0.8)
-    pbmc <<- reactive(seurat_obj)
-    output$summary <- renderPrint({ pbmc() })
-    output$qcPlots <- renderPlot({ DimPlot(pbmc(), group.by = "RNA_snn_res.0.8", label = TRUE) })
+    req(seurat_obj())
+    seurat_obj <- FindClusters(seurat_obj(), resolution = 0.8)
+    seurat_obj <<- reactive(seurat_obj)
+    output$summary <- renderPrint({ seurat_obj() })
+    output$qcPlots <- renderPlot({ DimPlot(seurat_obj(), group.by = "RNA_snn_res.0.8", label = TRUE) })
   })
   
   observeEvent(input$findMarkers, {
-    req(pbmc())
-    all.markers <- FindAllMarkers(pbmc(), only.pos = TRUE, min.pct = 0.5, logfc.threshold = 0.5)
+    req(seurat_obj())
+    all.markers <- FindAllMarkers(seurat_obj(), only.pos = TRUE, min.pct = 0.5, logfc.threshold = 0.5)
     output$markers <- renderPrint({ table(all.markers$cluster) })
     top3_markers <- as.data.frame(all.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_log2FC))
-    output$markersPlot <- renderPlot({ DotPlot(pbmc(), features = unique(top3_markers$gene)) + coord_flip() })
+    output$markersPlot <- renderPlot({ DotPlot(seurat_obj(), features = unique(top3_markers$gene)) + coord_flip() })
   })
   
   observeEvent(input$cellTypeAnnotation, {
-    req(pbmc())
+    req(seurat_obj())
     monaco.ref <- celldex::MonacoImmuneData()
-    sce <- as.SingleCellExperiment(DietSeurat(pbmc()))
+    sce <- as.SingleCellExperiment(DietSeurat(seurat_obj()))
     monaco.main <- SingleR(test = sce, assay.type.test = 1, ref = monaco.ref, labels = monaco.ref$label.main)
     monaco.fine <- SingleR(test = sce, assay.type.test = 1, ref = monaco.ref, labels = monaco.ref$label.fine)
-    seurat_obj <- pbmc()
+    seurat_obj <- seurat_obj()
     seurat_obj@meta.data$monaco.main <- monaco.main$pruned.labels
     seurat_obj@meta.data$monaco.fine <- monaco.fine$pruned.labels
-    pbmc <<- reactive(seurat_obj)
-    srat <- SetIdent(pbmc(), value = "monaco.fine")
+    seurat_obj <<- reactive(seurat_obj)
+    srat <- SetIdent(seurat_obj(), value = "monaco.fine")
     output$annotationPlot <- renderPlot({ DimPlot(srat, label = TRUE, repel = TRUE, label.size = 3) + NoLegend() })
   })
   
   # QC Plots
   output$qcCorrelationPlot <- renderPlot({
-    req(pbmc())
-    metadata <- pbmc()@meta.data
+    req(seurat_obj())
+    metadata <- seurat_obj()@meta.data
     ggplot(metadata, aes(x = nUMI, y = nGene, color = mitoRatio)) + 
       geom_point() + 
       scale_colour_gradient(low = "gray90", high = "black") +
@@ -268,8 +288,8 @@ server <- function(input, output, session) {
   })
   
   output$qcViolinPlot <- renderPlot({
-    req(pbmc())
-    VlnPlot(object = pbmc(),
+    req(seurat_obj())
+    VlnPlot(object = seurat_obj(),
             features = c("nUMI", "nGene", "mitoRatio"),
             pt.size = 0.01, ncol = 3) &
       theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
@@ -278,26 +298,26 @@ server <- function(input, output, session) {
   
   # PCA Visualization
   output$pcaViz <- renderPlot({
-    req(pbmc())
-    VizDimLoadings(pbmc(), dims = 1:2, reduction = "pca")
+    req(seurat_obj())
+    VizDimLoadings(seurat_obj(), dims = 1:2, reduction = "pca")
   })
   
   # Non-linear Dimensional Reduction Plots
   output$umapPlot <- renderPlot({
-    req(pbmc())
-    DimPlot(pbmc(), reduction = "umap", label = TRUE)
+    req(seurat_obj())
+    DimPlot(seurat_obj(), reduction = "umap", label = TRUE)
   })
   
   output$tsnePlot <- renderPlot({
-    req(pbmc())
-    TSNEPlot(object = pbmc(), label = TRUE)
+    req(seurat_obj())
+    TSNEPlot(object = seurat_obj(), label = TRUE)
   })
   
   # Cluster Segregation by "nUMI", "nGene", "S.Score", "G2M.Score", "mitoRatio"
   output$featurePlot <- renderPlot({
-    req(pbmc())
+    req(seurat_obj())
     metrics <-  c("nUMI", "nGene", "S.Score", "G2M.Score", "mitoRatio")
-    FeaturePlot(pbmc(), 
+    FeaturePlot(seurat_obj(), 
                 reduction = "umap", 
                 features = metrics,
                 pt.size = 0.4, 
@@ -332,4 +352,3 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
-
