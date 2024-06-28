@@ -27,6 +27,7 @@ geometry: margin=1in
 ---
 
 
+
 ```{css, echo=FALSE}
 body {
   font-family: Arial, sans-serif;
@@ -47,6 +48,8 @@ body {
   font-size: 1.5em;
   margin-bottom: 20px;
 }
+
+# Create the "plots" directory if it doesn't exist
 
   
 ```
@@ -121,14 +124,10 @@ load_and_create_seurat_object <- function(file_path, project_name) {
   return(seurat_object)
 }
 
-project_name <- "scRNAseq_analysis"
-
-# Create Seurat object using the file path from params
-seurat_obj <- load_and_create_seurat_object(params$file_10X_h5, project_name)
-
-# Save the Seurat object or proceed with further analysis
-saveRDS(seurat_obj, file = "seurat_object.rds")
-
+# Load either PBMC or Tumor data
+file_path <- "/home/mmerono/Downloads/sc5p_v2_hs_PBMC_10k_filtered_feature_bc_matrix.h5"
+project_name <- "scRNAseq_analysis"  
+seurat_obj <- load_and_create_seurat_object(file_path, project_name)
 
 ```
 
@@ -659,6 +658,9 @@ print(p17)
 ```
 
 
+
+
+
 ## Differential expression analysis
 
 ```{r }
@@ -698,6 +700,14 @@ p1
 p2
 ```
 
+
+
+## Finding differentially expressed features (look for genetic markers)
+
+Seurat function can find markers that define clusters via differential expression. It identifies positive and negative markers of a single cluster, compared to all other cells (using FindMarkers( ident.1 = )). The function "FindAllMarkers" automates this process ofr all clusters, but it can only be tested groups of clusters vs. each other, or against all cells.  
+"min.pct" argument requires a feature to be detected at a minimum percentage in either of the two groups pf cells. 
+"thresh.test" argument requires a feature to be differentially expressed on average by some amount between two groups. 
+"max.cells.per.ident" is an argument used to speed up computations by downsample each identity class to have no more cells than what is set to. 
 
 
 <!-- Footer -->
