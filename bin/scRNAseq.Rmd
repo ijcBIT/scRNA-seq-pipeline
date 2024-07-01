@@ -125,7 +125,7 @@ load_and_create_seurat_object <- function(file_path, project_name) {
 }
 
 # Load either PBMC or Tumor data
-file_path <- "/home/mmerono/Downloads/sc5p_v2_hs_PBMC_10k_filtered_feature_bc_matrix.h5"
+file_path <- "/scRNAseq_data/analysis_results/analysis_results/outs/filtered_feature_bc_matrix.h5"
 project_name <- "scRNAseq_analysis"  
 seurat_obj <- load_and_create_seurat_object(file_path, project_name)
 
@@ -708,17 +708,4 @@ Seurat function can find markers that define clusters via differential expressio
 "min.pct" argument requires a feature to be detected at a minimum percentage in either of the two groups pf cells. 
 "thresh.test" argument requires a feature to be differentially expressed on average by some amount between two groups. 
 "max.cells.per.ident" is an argument used to speed up computations by downsample each identity class to have no more cells than what is set to. 
-
-
-<!-- Footer -->
-<hr />
-<p style="text-align: center;">A work by <a href="https://github.com/mmerono/scRNA-seq-pipeline.git">Marta Meroño</a></p>
-<p style="text-align: center;"><span style="color: #808080;"><em>mmeronorafel@gmail.com</em></span></p>
-
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-
-<p style="text-align: center;">
-    <a href="https://www.linkedin.com/in/yan-holtz-2477534a/" class="fa fa-linkedin"></a>
-    <a href="https://github.com/mmerono/scRNA-seq-pipeline.git" class="fa fa-github"></a>
-</p>
 

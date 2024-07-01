@@ -4,10 +4,10 @@
 start=$(date +%s)
 
 # Load environment variables 
-source /scRNAseq_data/samples.contig
+source /scRNAseq_data/samples.config
 
 # Create the output directory file 
-mkdir -p ${OUTPUT_DIR}
+#mkdir -p ${OUTPUT_DIR}
 
 cd ${OUTPUT_DIR}
 

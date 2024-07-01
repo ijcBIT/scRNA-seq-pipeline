@@ -8,6 +8,6 @@
 
 
 singularity exec \
-  --bind /ijc/LABS/MERKEL/DATA/PROJECTS/mmerono/:/scRNAseq_data \
+  --bind /ijc/LABS/MERKEL/DATA/PROJECTS/mvilardell/:/scRNAseq_data \
   scRNAseq_refData.sif \
   Rscript -e "shiny::runApp('/scRNAseq_data/singularity/app.R')"
